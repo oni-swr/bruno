@@ -42,3 +42,10 @@ test('newer transcripts keep a prepared comment; expiry, quiet mode and playback
   assert.equal(canPrepare({...state,busy:true},11400,direct),false);
   assert.equal(canPrepare({...state,considered:1},11400,direct),false);
 });
+
+test('after speaking he waits for a new human turn unless someone named him', () => {
+  const state = {...ready(), revision:5, considered:4, spokeAt:5};
+  assert.equal(canPrepare(state,11400,direct),false);
+  assert.equal(canPrepare(state,11400,{...direct,addressed:true}),true);
+  assert.equal(canPrepare({...state,revision:6},11400,direct),true);
+});

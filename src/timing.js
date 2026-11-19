@@ -8,6 +8,8 @@ export function canConsider(s, now, {gap, cooldown}) {
 // Hold at most one comment. A held unsolicited comment is only replaced by a direct reply.
 export function canPrepare(s, now, {cooldown, addressed = false}) {
   if (s.prepared && !(addressed && !s.prepared.addressed)) return false;
+  // After speaking, wait for someone to say something new (unless an unanswered line names him).
+  if (!addressed && s.revision <= (s.spokeAt ?? -1)) return false;
   return !s.quiet && !s.busy && !s.playing && s.revision !== s.considered &&
     now - s.lastReply >= cooldown;
 }
