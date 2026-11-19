@@ -10,12 +10,12 @@ Discord voice ──► Whisper (speech → text) ──► Ollama LLM (decides 
 
 - **Discord:** Node 22.12+, discord.js and @discordjs/voice (with DAVE encryption).
 - **Language model:** Ollama with `gemma4:12b` (`OLLAMA_MODEL`).
-- **Transcription:** faster-whisper `small` on the CPU (int8, 6 threads) with a German language hint (`WHISPER_MODEL`, `WHISPER_LANGUAGE`). `medium` or `large-v3-turbo` are more accurate but slower.
+- **Transcription:** faster-whisper `small` on the CPU (int8, up to 6 threads, `WHISPER_THREADS`) with a German language hint (`WHISPER_MODEL`, `WHISPER_LANGUAGE`). `medium` or `large-v3-turbo` are more accurate but slower.
 - **Voice:** Piper `de_DE-thorsten-medium`. Standard German voice, not real Swiss dialect, so replies use Standard German with Swiss vocabulary.
 
 ## Requirements
 
-- Windows with PowerShell (the launcher script is PowerShell; the bot itself is plain Node + Python).
+- Windows with PowerShell, or 64-bit Linux on x86-64 or ARM (aarch64, e.g. Raspberry Pi 5 with 64-bit Raspberry Pi OS). See [Linux and ARM](#linux-and-arm).
 - [Node.js](https://nodejs.org) 22.12 or newer.
 - [uv](https://docs.astral.sh/uv/) (installs Python 3.12 and the speech dependencies).
 - [Ollama](https://ollama.com) with the model pulled: `ollama pull gemma4:12b`.
@@ -55,6 +55,28 @@ powershell -ExecutionPolicy Bypass -File scripts/start.ps1
 This starts the speech service (port 8765, localhost only) and then the bot. The first launch downloads the Whisper model; if that exceeds the startup timeout, run `.venv\Scripts\python speech/server.py` once to finish the download. The launcher reuses an already running speech service and only stops one it started itself.
 
 If the speech service is already running you can start just the bot with `npm start`.
+
+### Linux and ARM
+
+Works on 64-bit Linux, including ARM64 (aarch64) with glibc 2.28+ (Debian 11+, Ubuntu 20.04+, Raspberry Pi OS Bookworm 64-bit). 32-bit ARM (armv7) is not supported: the speech libraries have no wheels for it.
+
+```bash
+sudo apt install -y curl ffmpeg build-essential python3   # ffmpeg is only used by the smoke test
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# Node 22.12+ from nodejs.org, nvm or NodeSource (distro packages are often too old)
+git clone <this repo> && cd local-discord-mate
+npm ci
+uv sync --frozen --python 3.12
+mkdir -p models
+.venv/bin/python -m piper.download_voices de_DE-thorsten-medium --download-dir models
+cp .env.example .env
+```
+
+Then start Ollama and run `bash scripts/start.sh`. It does the same as `start.ps1`; the speech service's output goes to `logs/speech.log`.
+
+- **Opus:** `@discordjs/opus` is optional. It ships prebuilt ARM64 binaries only for Node 22 on some glibc versions; otherwise npm compiles it (that's what `build-essential` and `python3` are for). If that fails too, the install still succeeds and voice falls back to the slower pure-JS `opusscript`. `npm run doctor` shows which one is in use.
+- **Speed:** a Raspberry Pi has no GPU that Ollama can use, so an 8–12B model takes many seconds per reply. Run Ollama on another machine and point `OLLAMA_URL` at it, or use a much smaller model. Whisper `base` (`WHISPER_MODEL=base`) keeps transcription quick on 4 cores.
+- **Install Ollama:** `curl -fsSL https://ollama.com/install.sh | sh` (supports ARM64).
 
 ## Using it
 
@@ -103,6 +125,7 @@ Bruno's personality is the `personality` prompt in `src/brain.js`: a chaotic gob
 | `OLLAMA_URL` / `OLLAMA_MODEL` | `http://127.0.0.1:11434` / `gemma4:12b` | Language model. |
 | `SPEECH_URL` | `http://127.0.0.1:8765` | Local speech service. Don't expose it to the network. |
 | `WHISPER_MODEL` / `WHISPER_LANGUAGE` | `small` / `de` | Transcription model and language. |
+| `WHISPER_THREADS` | CPU cores, max 6 | CPU threads for transcription. |
 | `PIPER_MODEL` | `models/de_DE-thorsten-medium.onnx` | Voice. |
 | `REPLY_COOLDOWN_MS` | `0` | Minimum time between contributions. |
 | `QUIET_GAP_MS` / `DIRECT_REPLY_GAP_MS` | `1100` / `650` | Pause needed before speaking (unsolicited / addressed). |
@@ -114,7 +137,7 @@ Bruno's personality is the `personality` prompt in `src/brain.js`: a chaotic gob
 | `AUTO_JOIN_CHANNEL_ID` | – | Voice channel to join on startup. |
 | `VOICE_DEBUG` | – | `1` prints decision metrics and voice state. |
 
-Restart after edits. Speech settings are read by `scripts/start.ps1` when it starts the speech service.
+Restart after edits. Speech settings are read by `scripts/start.ps1` / `scripts/start.sh` when it starts the speech service.
 
 To calm him down, raise `REPLY_COOLDOWN_MS` (e.g. `30000`) and `MIN_RELEVANCE` (e.g. `0.7`).
 
