@@ -43,7 +43,7 @@ function close() {
 async function join(channel) {
   close();
   const connection = joinVoiceChannel({ channelId: channel.id, guildId: channel.guild.id, adapterCreator: channel.guild.voiceAdapterCreator, selfDeaf: false });
-  const s = session = { channel, connection, player: createAudioPlayer(), history: [], streams: new Map(), pending: 0, busy: false, quiet: false, playing: false, lastSpeech: Date.now(), lastReply: 0, revision: 0, considered: 0 };
+  const s = session = { channel, connection, player: createAudioPlayer(), history: [], said: [], seen: 0, spokeAt: -1, streams: new Map(), pending: 0, busy: false, quiet: false, playing: false, lastSpeech: Date.now(), lastReply: 0, revision: 0, considered: 0 };
   s.player.on('error', e => { s.playing = false; console.error('Playback:', e.message); });
   s.player.on(AudioPlayerStatus.Idle, () => { s.playing = false; });
   connection.on('error', e => { console.error('Voice:', e.message); if (session === s) close(); });
@@ -94,7 +94,7 @@ async function transcribe(s, userId, pcm, capturedAt) {
     if (!result.text || session !== s) return;
     const speaker = s.channel.members.get(userId)?.displayName || 'Friend';
     logConversation('heard', speaker, result.text);
-    s.history.push({ speaker, text: result.text, at: capturedAt });
+    s.history.push({ speaker, text: result.text, at: capturedAt, rev: s.revision + 1 });
     s.history = s.history.sort((a,b) => a.at - b.at).slice(-16);
     s.revision++;
     console.log(`Transcribed speech in ${result.seconds.toFixed(2)}s`);
@@ -106,7 +106,8 @@ async function consider(s) {
     s.lastDebug = Date.now();
     console.log('Voice state:', JSON.stringify({pending:s.pending, streams:s.streams.size, busy:s.busy, playing:s.playing, revision:s.revision, considered:s.considered, silenceMs:Date.now()-s.lastSpeech}));
   }
-  const addressed = isAddressed(s.history);
+  // Someone said his name in a line he hasn't answered yet.
+  const addressed = s.history.some(h => h.rev > s.seen && isAddressed([h]));
   const cooldown = addressed ? Math.min(1500, config.cooldown) : config.cooldown;
   const gap = addressed ? config.directGap : config.gap;
   if (session !== s) return;
@@ -124,6 +125,9 @@ async function consider(s) {
       s.lastReply = Date.now();
       s.player.play(resource);
       s.history.push({speaker:config.name, text:candidate.text, at:Date.now()});
+      s.seen = candidate.revision;
+      s.spokeAt = s.revision; // everything heard so far counts as covered by this line
+      s.said = [...s.said, candidate.text].slice(-12);
       logConversation('SAID', config.name, `${candidate.text}  (${candidate.addressed ? 'addressed' : 'unsolicited'}, ${s.revision - candidate.revision} newer turns since)`);
     } catch (e) { s.playing = false; console.error('Playback:', e.message); }
     return;
@@ -135,7 +139,7 @@ async function consider(s) {
   s.considered = revision;
   const stillRelevant = () => session === s && !s.quiet && Date.now() - started < PREPARED_MAX_AGE_MS && !(s.prepared?.addressed && !addressed);
   try {
-    const text = await decide(s.history);
+    const text = await decide(s.history, {said: s.said, seen: s.seen});
     if (!text || !stillRelevant()) {
       if (text) logConversation('dropped', config.name, text);
       return;
