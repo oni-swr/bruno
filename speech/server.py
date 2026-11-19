@@ -14,7 +14,7 @@ from audio import discord_pcm
 
 stt_lock = threading.Lock()
 tts_lock = threading.Lock()
-whisper = WhisperModel(os.getenv("WHISPER_MODEL", "small"), device="cpu", compute_type="int8", cpu_threads=6, download_root="models/whisper")
+whisper = WhisperModel(os.getenv("WHISPER_MODEL", "small"), device="cpu", compute_type="int8", cpu_threads=int(os.getenv("WHISPER_THREADS") or min(6, os.cpu_count() or 4)), download_root="models/whisper")
 voice = PiperVoice.load(os.getenv("PIPER_MODEL", "models/de_DE-thorsten-medium.onnx"))
 
 
