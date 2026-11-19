@@ -1,6 +1,6 @@
 # Local Discord Mate
 
-A local AI voice companion for a Swiss German Discord group. "Bruno" joins a voice channel, listens, and chimes in with jokes and comments. Speech recognition, the language model and the voice all run on your own PC; nothing goes to a cloud AI service.
+A local AI voice companion for a Swiss German Discord group. "Bruno" joins a voice channel, listens, and chimes in with chaotic, sweary, dry Swiss jokes and roasts. Speech recognition, the language model and the voice all run on your own PC; nothing goes to a cloud AI service.
 
 ## How it works
 
@@ -92,7 +92,7 @@ This stores other people's speech as text on disk. Set `LOG_TRANSCRIPTS=false` t
 
 ### The prompt
 
-The personality and rules are in `src/brain.js`: a base prompt (who Bruno is, output format, 240-character limit), optional chatty and unhinged add-ons, the `VARIETY` rules (own lines, new turns, mishearings are fair game), and a hint when addressed by name. Edit there and restart.
+Bruno's personality is the `personality` prompt in `src/brain.js`: a chaotic goblin friend with a dry Swiss sense of humor, absurd comparisons, playful roasts and swearing, reacting to almost every turn, at most 240 characters. A short extra hint is added when someone addresses him by name. Edit there and restart.
 
 ## Configuration (`.env`)
 
@@ -104,12 +104,10 @@ The personality and rules are in `src/brain.js`: a base prompt (who Bruno is, ou
 | `SPEECH_URL` | `http://127.0.0.1:8765` | Local speech service. Don't expose it to the network. |
 | `WHISPER_MODEL` / `WHISPER_LANGUAGE` | `small` / `de` | Transcription model and language. |
 | `PIPER_MODEL` | `models/de_DE-thorsten-medium.onnx` | Voice. |
-| `REPLY_COOLDOWN_MS` | `45000` | Minimum time between contributions. |
+| `REPLY_COOLDOWN_MS` | `0` | Minimum time between contributions. |
 | `QUIET_GAP_MS` / `DIRECT_REPLY_GAP_MS` | `1100` / `650` | Pause needed before speaking (unsolicited / addressed). |
 | `END_SILENCE_MS` | `450` | Silence that ends a speaker's clip. |
-| `MIN_RELEVANCE` | `0.70` | Minimum model confidence to speak. |
-| `CHATTY_MODE` | `false` | Encourage casual comments instead of only strong jokes. |
-| `UNHINGED_MODE` | `false` | Chaotic, sweary, roast-heavy comedy personality. |
+| `MIN_RELEVANCE` | `0` | Minimum model score to speak (raise, e.g. `0.7`, to make him pickier). |
 | `PREPARED_MAX_AGE_MS` | `90000` | How long a prepared comment may wait for a pause. |
 | `LOG_TRANSCRIPTS` | `true` | Also log what other people say. |
 | `CONVERSATION_LOG_DIR` | `logs` | Log folder. |
@@ -118,11 +116,7 @@ The personality and rules are in `src/brain.js`: a base prompt (who Bruno is, ou
 
 Restart after edits. Speech settings are read by `scripts/start.ps1` when it starts the speech service.
 
-**Presets**
-
-- Normal: `CHATTY_MODE=false`, `UNHINGED_MODE=false`, `MIN_RELEVANCE=0.70`, `REPLY_COOLDOWN_MS=45000`.
-- Talkative: `CHATTY_MODE=true`, `MIN_RELEVANCE=0.05`, `REPLY_COOLDOWN_MS=3000`.
-- Maximum chaos: `CHATTY_MODE=true`, `UNHINGED_MODE=true`, `MIN_RELEVANCE=0`, `REPLY_COOLDOWN_MS=0`.
+To calm him down, raise `REPLY_COOLDOWN_MS` (e.g. `30000`) and `MIN_RELEVANCE` (e.g. `0.7`).
 
 ## Running more than one bot
 
