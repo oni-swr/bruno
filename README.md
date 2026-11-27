@@ -9,8 +9,9 @@ Discord voice ──► Whisper (speech → text) ──► Ollama LLM (decides 
 ```
 
 - **Discord:** Node 22.12+, discord.js and @discordjs/voice (with DAVE encryption).
-- **Language model:** Ollama with `gemma4:12b` (`OLLAMA_MODEL`).
-- **Transcription:** faster-whisper `small` on the CPU (int8, up to 6 threads, `WHISPER_THREADS`) with a German language hint (`WHISPER_MODEL`, `WHISPER_LANGUAGE`). `medium` or `large-v3-turbo` are more accurate but slower.
+- **Language model:** Ollama with `gemma4:12b` (`OLLAMA_MODEL`). For pure chaos, try [Alpesteibock](https://huggingface.co/kaizuberbuehler/Alpesteibock-Llama-3-8B-Alpha) (`hf.co/mradermacher/Alpesteibock-Llama-3-8B-Alpha-GGUF:Q6_K`), an experimental Swiss German Llama 3 8B fine-tune: real Swiss German, very funny, mostly incoherent.
+- **Transcription:** either faster-whisper `small` on the CPU (int8, up to 6 threads, `WHISPER_THREADS`) with a German language hint (`WHISPER_MODEL`, `WHISPER_LANGUAGE`). `medium` or `large-v3-turbo` are more accurate but slower.
+  Or, recommended for Swiss German, [Flurin17/parakeet-tdt-0.6b-v3-swiss-german](https://huggingface.co/Flurin17/parakeet-tdt-0.6b-v3-swiss-german) (`STT_ENGINE=parakeet`): Swiss German speech in, Standard German text out, ~0.2 s per clip on the CPU, with Silero voice detection so noise is ignored. Licence CC BY-NC 4.0 (non-commercial). See [Swiss German transcription (Parakeet)](#swiss-german-transcription-parakeet).
 - **Voice:** Piper `de_DE-thorsten-medium`. Standard German voice, not real Swiss dialect, so replies use Standard German with Swiss vocabulary.
 
 ## Requirements
@@ -88,7 +89,7 @@ Join a regular voice channel in your server and type:
 | `/quiet` | Toggle listen-only mode (stops current speech too). |
 | `/leave` | Disconnect and forget the conversation. |
 
-Set `AUTO_JOIN_CHANNEL_ID` in `.env` (right-click the voice channel → Copy Channel ID, with Developer Mode on) to join automatically on startup. The bot leaves when no humans remain in the channel. **Tell everyone in the channel that it is listening.**
+Set `AUTO_JOIN_CHANNEL_ID` in `.env` (right-click the voice channel → Copy Channel ID, with Developer Mode on) to join automatically: on startup if someone is in the channel, otherwise as soon as the first person enters. The bot leaves when no humans remain and comes back when someone returns. `/leave` stops this until the next `/join`. **Tell everyone in the channel that it is listening.**
 
 ## Conversation log
 
@@ -114,7 +115,7 @@ This stores other people's speech as text on disk. Set `LOG_TRANSCRIPTS=false` t
 
 ### The prompt
 
-Bruno's personality is the `personality` prompt in `src/brain.js`: a chaotic goblin friend with a dry Swiss sense of humor, absurd comparisons, playful roasts and swearing, reacting to almost every turn, at most 240 characters. A short extra hint is added when someone addresses him by name. Edit there and restart.
+Bruno's personality is the `personality` prompt in `src/brain.js`: a chaotic goblin friend with a dry Swiss sense of humor, absurd comparisons, playful roasts and swearing, reacting to almost every turn in up to two punchy sentences (240 characters). A short extra hint is added when someone addresses him by name. Edit there and restart.
 
 ## Configuration (`.env`)
 
@@ -123,8 +124,11 @@ Bruno's personality is the `personality` prompt in `src/brain.js`: a chaotic gob
 | `DISCORD_TOKEN` | – | Your bot token (required). |
 | `BOT_NAME` | `Bruno` | Name the bot answers to and uses for itself. |
 | `OLLAMA_URL` / `OLLAMA_MODEL` | `http://127.0.0.1:11434` / `gemma4:12b` | Language model. |
+| `MAX_REPLY_TOKENS` / `MAX_REPLY_CHARS` | `180` / `240` | Reply length limits. Longer or cut-off output ends at the last full sentence. Raise both (and edit the prompt) to let him ramble. |
 | `SPEECH_URL` | `http://127.0.0.1:8765` | Local speech service. Don't expose it to the network. |
-| `WHISPER_MODEL` / `WHISPER_LANGUAGE` | `small` / `de` | Transcription model and language. |
+| `STT_ENGINE` | `whisper` | `whisper` or `parakeet` (Swiss German, see below). |
+| `WHISPER_MODEL` / `WHISPER_LANGUAGE` | `small` / `de` | Whisper model and language. |
+| `PARAKEET_DIR` / `PARAKEET_QUANTIZATION` | `models/parakeet-sg` / `int8` | Exported Parakeet model folder and variant (`int8` or empty for full precision). |
 | `WHISPER_THREADS` | CPU cores, max 6 | CPU threads for transcription. |
 | `PIPER_MODEL` | `models/de_DE-thorsten-medium.onnx` | Voice. |
 | `REPLY_COOLDOWN_MS` | `0` | Minimum time between contributions. |
@@ -134,12 +138,31 @@ Bruno's personality is the `personality` prompt in `src/brain.js`: a chaotic gob
 | `PREPARED_MAX_AGE_MS` | `90000` | How long a prepared comment may wait for a pause. |
 | `LOG_TRANSCRIPTS` | `true` | Also log what other people say. |
 | `CONVERSATION_LOG_DIR` | `logs` | Log folder. |
-| `AUTO_JOIN_CHANNEL_ID` | – | Voice channel to join on startup. |
+| `AUTO_JOIN_CHANNEL_ID` | – | Voice channel to join on startup or when someone enters it. |
 | `VOICE_DEBUG` | – | `1` prints decision metrics and voice state. |
 
 Restart after edits. Speech settings are read by `scripts/start.ps1` / `scripts/start.sh` when it starts the speech service.
 
 To calm him down, raise `REPLY_COOLDOWN_MS` (e.g. `30000`) and `MIN_RELEVANCE` (e.g. `0.7`).
+
+## Swiss German transcription (Parakeet)
+
+[Flurin17/parakeet-tdt-0.6b-v3-swiss-german](https://huggingface.co/Flurin17/parakeet-tdt-0.6b-v3-swiss-german) is a Parakeet model fine-tuned on Swiss German. It writes Standard German, which suits the bot (22% WER on Swiss German dialect tests, vs 36% for the base model). It is published only as a NeMo checkpoint, so it is exported to ONNX once and then runs through `onnx-asr`, with no NeMo or GPU needed at runtime. NeMo goes into a separate throwaway environment so the bot's environment stays small.
+
+```powershell
+New-Item -ItemType Directory -Force models/parakeet-sg
+$base = 'https://huggingface.co'
+curl.exe -L -C - -o models/parakeet-sg/parakeet-tdt-0.6b-v3-swiss-german.nemo "$base/Flurin17/parakeet-tdt-0.6b-v3-swiss-german/resolve/main/parakeet-tdt-0.6b-v3-swiss-german.nemo"   # 2.5 GB
+curl.exe -L -o models/parakeet-sg/config.json  "$base/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main/config.json"
+curl.exe -L -o models/parakeet-sg/nemo128.onnx "$base/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main/nemo128.onnx"
+
+uv venv .venv-export --python 3.12
+uv pip install --python .venv-export/Scripts/python.exe torch --index-url https://download.pytorch.org/whl/cpu
+uv pip install --python .venv-export/Scripts/python.exe "nemo_toolkit[asr]==2.7.3" onnx onnxruntime
+.venv-export\Scripts\python scripts/export_parakeet.py models/parakeet-sg/parakeet-tdt-0.6b-v3-swiss-german.nemo models/parakeet-sg
+```
+
+Then set `STT_ENGINE=parakeet` in `.env` and restart. Afterwards `.venv-export` and the `.nemo` file can be deleted. The Silero voice-detection model downloads automatically on first start.
 
 ## Running more than one bot
 
@@ -151,7 +174,7 @@ To calm him down, raise `REPLY_COOLDOWN_MS` (e.g. `30000`) and `MIN_RELEVANCE` (
 
 ## When the bot is offline
 
-If the process stops (closed window, crash, PC asleep or off), the bot shows as offline and drops out of voice within seconds. Its `/join` command still appears but answers "The application did not respond". Conversation memory is lost; logs remain. On the next start it logs in again and rejoins voice only if `AUTO_JOIN_CHANNEL_ID` is set. Short network drops reconnect automatically, but a voice connection that stays down for more than 5 seconds makes it leave the channel without rejoining.
+If the process stops (closed window, crash, PC asleep or off), the bot shows as offline and drops out of voice within seconds. Its `/join` command still appears but answers "The application did not respond". Conversation memory is lost; logs remain. On the next start it logs in again and rejoins voice only if `AUTO_JOIN_CHANNEL_ID` is set (immediately if someone is there, otherwise when someone enters). Short network drops reconnect automatically, but a voice connection that stays down for more than 5 seconds makes it leave the channel without rejoining.
 
 ## Verification
 

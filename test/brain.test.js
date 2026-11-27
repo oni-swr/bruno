@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseDecision, isAddressed } from '../src/brain.js';
+import { parseDecision, isAddressed, readDecision } from '../src/brain.js';
 test('silence and malformed or low-confidence output cannot trigger speech', () => {
-  for (const value of [null, {}, {speak:false,score:1,text:'hi'}, {speak:true,score:0.3,text:'hi'}, {speak:true,score:1,text:'x'.repeat(241)}, {speak:true,score:1,text:''}, {speak:true,score:'1',text:'hi'}]) assert.equal(parseDecision(value, 0.7), null);
+  for (const value of [null, {}, {speak:false,score:1,text:'hi'}, {speak:true,score:0.3,text:'hi'}, {speak:true,score:1,text:''}, {speak:true,score:'1',text:'hi'}]) assert.equal(parseDecision(value, 0.7), null);
 });
 test('a short confident contribution is accepted', () => assert.equal(parseDecision({speak:true,score:0.95,text:'  Grüezi!  '}), 'Grüezi!'));
 test('direct address uses the latest human turn and whole names', () => {
@@ -15,4 +15,12 @@ test('requested replies can pass while the same confidence cannot interrupt', ()
   const result = {speak:true,score:0.6,text:'Hallo zusammen!'};
   assert.equal(parseDecision(result, 0.7), null);
   assert.equal(parseDecision(result,0.5), result.text);
+});
+test('output cut off by the token limit is salvaged and ends at the last full sentence', () => {
+  const raw = '{"speak":true,"score":0.8,"text":"Hoi zäme! ' + 'Das isch e langi Gschicht. '.repeat(12) + 'Und no meh \\"Züg';
+  const d = readDecision(raw);
+  assert.equal(d.speak, true); assert.equal(d.score, 0.8);
+  const text = parseDecision(d, 0);
+  assert.ok(text.length <= 240 && text.startsWith('Hoi zäme!') && text.endsWith('Gschicht.'), text);
+  assert.equal(readDecision('nonsense'), null);
 });

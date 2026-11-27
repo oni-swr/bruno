@@ -14,7 +14,22 @@ from audio import discord_pcm
 
 stt_lock = threading.Lock()
 tts_lock = threading.Lock()
-whisper = WhisperModel(os.getenv("WHISPER_MODEL", "small"), device="cpu", compute_type="int8", cpu_threads=int(os.getenv("WHISPER_THREADS") or min(6, os.cpu_count() or 4)), download_root="models/whisper")
+STT_ENGINE = os.getenv("STT_ENGINE", "whisper")
+if STT_ENGINE == "parakeet":
+    # Swiss German Parakeet TDT (Flurin17), exported to ONNX by scripts/export_parakeet.py. Swiss German in, Standard German out.
+    # int8 transcribes the example clips identically to fp32 and is faster. Silero VAD drops noise-only clips.
+    import onnx_asr
+    parakeet = onnx_asr.load_model("nemo-conformer-tdt", os.getenv("PARAKEET_DIR", "models/parakeet-sg"),
+                                   quantization=os.getenv("PARAKEET_QUANTIZATION", "int8") or None).with_vad(onnx_asr.load_vad("silero"))
+else:
+    whisper = WhisperModel(os.getenv("WHISPER_MODEL", "small"), device="cpu", compute_type="int8", cpu_threads=int(os.getenv("WHISPER_THREADS") or min(6, os.cpu_count() or 4)), download_root="models/whisper")
+
+
+def transcribe(pcm):
+    if STT_ENGINE == "parakeet":
+        return " ".join(segment.text for segment in parakeet.recognize(pcm, sample_rate=16000)).strip()
+    segments, _ = whisper.transcribe(pcm, language=os.getenv("WHISPER_LANGUAGE", "de"), beam_size=1, vad_filter=True, condition_on_previous_text=False)
+    return " ".join(s.text.strip() for s in segments if s.no_speech_prob < 0.6).strip()
 voice = PiperVoice.load(os.getenv("PIPER_MODEL", "models/de_DE-thorsten-medium.onnx"))
 
 
@@ -46,13 +61,12 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("PCM must contain complete stereo frames")
                 pcm = np.frombuffer(body, dtype="<i2").reshape(-1, 2).astype(np.float32).mean(axis=1)[::3] / 32768
                 with stt_lock:
-                    segments, _ = whisper.transcribe(pcm, language=os.getenv("WHISPER_LANGUAGE", "de"), beam_size=1, vad_filter=True, condition_on_previous_text=False)
-                    text = " ".join(s.text.strip() for s in segments if s.no_speech_prob < 0.6).strip()
+                    text = transcribe(pcm)
                 self.send(200, json.dumps({"text": text, "seconds": time.perf_counter() - started}).encode())
             elif self.path in ("/synthesize", "/synthesize-pcm"):
                 text = json.loads(body).get("text", "")
-                if not isinstance(text, str) or not 0 < len(text) <= 500:
-                    raise ValueError("text must be 1–500 characters")
+                if not isinstance(text, str) or not 0 < len(text) <= 3000:
+                    raise ValueError("text must be 1–3000 characters")
                 output = io.BytesIO()
                 with tts_lock, wave.open(output, "wb") as wav:
                     voice.synthesize_wav(text, wav)

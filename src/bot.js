@@ -159,17 +159,33 @@ client.once(Events.ClientReady, async () => {
     catch (e) { console.error('Command registration failed:', e.message); }
   }
   console.log('Use /join in your server while connected to a voice channel.');
-  if (process.env.AUTO_JOIN_CHANNEL_ID) {
-    try {
-      const channel = await client.channels.fetch(process.env.AUTO_JOIN_CHANNEL_ID);
-      if (channel?.type !== ChannelType.GuildVoice) throw new Error('Auto-join target is not a voice channel.');
-      await join(channel);
-    } catch (e) { console.error('Auto-join:', e.message); }
-  }
+  await autoJoin();
 });
 client.on(Events.GuildCreate, guild => guild.commands.set(commands).catch(e => console.error(e.message)));
-client.on(Events.VoiceStateUpdate, () => {
-  if (session && !session.channel.members.some(m => !m.user.bot)) close();
+const hasHumans = channel => channel.members.some(m => !m.user.bot);
+// AUTO_JOIN_CHANNEL_ID: join when the bot starts, or as soon as someone enters that channel. /leave pauses this until /join.
+let autoJoining = false, autoJoinPaused = false, announcedEmpty = false;
+async function autoJoin() {
+  const id = process.env.AUTO_JOIN_CHANNEL_ID;
+  if (!id || session || autoJoining || autoJoinPaused || controlling) return;
+  autoJoining = true;
+  try {
+    const channel = await client.channels.fetch(id);
+    if (channel?.type !== ChannelType.GuildVoice) throw new Error('Auto-join target is not a voice channel.');
+    // Joining an empty channel would immediately trigger the "no humans left" disconnect below.
+    if (!hasHumans(channel)) {
+      if (!announcedEmpty) console.log(`Auto-join: ${channel.name} is empty; joining when someone enters.`);
+      announcedEmpty = true;
+      return;
+    }
+    announcedEmpty = false;
+    await join(channel);
+  } catch (e) { console.error('Auto-join:', e.message); }
+  finally { autoJoining = false; }
+}
+client.on(Events.VoiceStateUpdate, (_, now) => {
+  if (session && !hasHumans(session.channel)) close();
+  else if (!session && now.channelId === process.env.AUTO_JOIN_CHANNEL_ID && !now.member?.user.bot) void autoJoin();
 });
 client.on(Events.InteractionCreate, async interaction => {
   if (!interaction.isChatInputCommand() || !['join','leave','quiet'].includes(interaction.commandName)) return;
@@ -182,10 +198,12 @@ client.on(Events.InteractionCreate, async interaction => {
     if (!channel || channel.type !== ChannelType.GuildVoice) throw new Error('Join a regular voice channel first.');
     if (session && session.channel.id !== channel.id) throw new Error('I am already in another channel. Use /leave there first.');
     if (interaction.commandName === 'join') {
+      autoJoinPaused = false;
       await request(`${config.speech}/health`);
       await join(channel);
       await interaction.editReply('Listening locally. I will chime in occasionally; /quiet pauses replies and /leave clears my memory. Let everyone in the channel know I am listening.');
     } else if (interaction.commandName === 'leave') {
+      autoJoinPaused = true;
       close(); await interaction.editReply('Disconnected and cleared conversation memory.');
     } else {
       if (!session) throw new Error('Use /join first.');
